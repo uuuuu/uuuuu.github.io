@@ -8,7 +8,7 @@ License: CC-BY-SA 4.0
 Published: 2018-03-08
 Updated: 2018-03-08
 Link: gopher://sdf.org/0/users/ulcer/kb/kb/article-script-survival.md
-Mirror: https://uuuuu.github.io/article-script-survival.html
+Mirror: https://uuuuu.github.io/article-script-survival.txt
 
 Buy me cookies: https://patreon.com/ulcer
 
