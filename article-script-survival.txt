@@ -1,0 +1,1071 @@
+% date: 2018-03-08
+
+POSIX Shell Scripting Survival Guide
+====================================
+
+Authors: ulcer <ulcer@sdf.org>
+License: CC-BY-SA 4.0
+Published: 2018-03-08
+Updated: 2018-03-08
+Link: gopher://sdf.org/0/users/ulcer/kb/kb/article-script-survival.md
+Mirror: https://uuuuu.github.io/article-script-survival.html
+
+Buy me cookies: https://patreon.com/ulcer
+
+Table of contents:
+
+1. Introduction
+    1.1. Note on shells: bourne shell syntax, bashisms and POSIX
+    1.2. Tools of trade: BSD userland, GNU coreutils
+    1.3. Shell scripting limitations
+2. Scripting basics
+    2.1. echo vs printf and few more details
+    2.2. Variables, eval and quotation
+    2.3. Conditions and loops: if, while
+    2.4. Options parsing and validation: getopt vs getopts, case
+    2.5. Life without arrays
+    2.6. Change file
+    2.7. Check lock
+3. Commentary on tools
+    3.1. Working with pipes: stdbuf and pv
+    3.2. Notes on grep
+    3.3. Notes on sed
+    3.4. Notes on awk
+    3.5. Notes on portable syntax
+    3.6. Notes on UTF-8 compatibility
+    3.7. Working with XML and HTML: curl, tidy and xmlstarlet
+    3.8. Working with JSON: jq
+    3.9. Working with CSV: miller
+4. Advanced topics
+    4.1. Reading user input
+    4.2. Internal field separator
+    4.3. Command line options manupulation
+    4.4. Nested constructions difficulties and recursion
+    4.5. Libraries and trap cascading
+    4.6. Debugging
+    4.7. Testing and deploying in new environment
+    4.8. Networking with shell
+    4.9. Paste safety
+5. Further reading
+6. References
+7. Changelog
+
+% body
+
+1. Introduction
+---------------
+
+While  it  is true  that  tasks  shell  solves  are of  limited  scope,
+using POSIX  shell/toolset you  may still do  plenty of  day-to-day and
+administration/deployment/maintenance work  done not caring  much about
+platform you use - BSD or GNU.
+
+This  guide  was  motivated  by watching  fellow  SDFers  doing  common
+mistakes and assumes you know how to  do "hello world" . It also should
+provide you with answer to question  "how do I solve real life problems
+with  this junk".  Given  number of  historical  tool alternatives  and
+spreaded functionality, it's no obvious  question. This guide is highly
+opiniated, when possible link with reasoning provided.
+
+### 1.1. Note on shells: bourne shell syntax, bashisms and POSIX
+
+Since this guide assumes you know some basics, it was probably bash. If
+you didn't really dive into it (except for arrays), you should be aware
+that  there's  minimal  number  of differences,  called  bashisms  [1],
+holding you  from POSIX compliant  syntax (which is subset  of language
+features you may  successfully run under any  major contemporary shells
+without  extra  movements). This  may  also  drop question  about  bash
+incompatibilities under different versions. Same bashisms curse follows
+ksh users.
+
+Other reason  for getting  rid of  bashisms is  real slowness  of bash.
+While it's good  for interactive usage, there is better  choice, as zsh
+holds  ultimate  position  at  command  completion.  Famous  ShellShock
+vulnerability also suggests necessity of  less bloated shell for system
+tasks.
+
+You  may check  common bashisms  list  at [2]  and use  "checkbashisms"
+script bundled in Debian "devscripts" package [3].
+
+Closest to  POSIX standard shells  are Almquist shell  successors: dash
+and busybox  ash. I usually develop  scripts in dash, which  is default
+Debian system shell.  Bash usually doesn't need even  minor changes for
+dash scripts,  but it can be  run in "bash --posix"  mode. Zsh provides
+bare minimum default compatibility with POSIX syntax, requiring "zsh -c
+'emulate sh; sh'" to run POSIX scripts.
+
+As you  noticed, POSIX  sh has  one major drawback:  it has  no arrays.
+Therefore there  were csh, ksh,  bash and so  on. One thing  you should
+know looking  at shell  alternative, csh  (tcsh, if  you like)  is dead
+branch [4] [5]. If you ask which shell is best compromise between POSIX
+compliance and bare minimum improvement - arrays, it'd be probably mksh
+(MirBSD ksh) which is already default Android shell.
+
+Alternative syntaxes  not compatible with  POSIX sh: rc, fish  and zsh.
+Fish is contemporary effort to  fish bash problems, which doesn't focus
+on executation efficiency. You may surely take a look at rc publication
+and plan9 ecosystem to spot problematic parts of traditional shell [6].
+Zsh while being  not compatible with POSIX  syntax offers significantly
+improved over bash interactive  experience and best currently available
+completion system.
+
+Shells  are  largely bloatware.  Example  comparison  of manpages  size
+between shells (using "MANWIDTH=80 manpage dash | wc -l"): dash - 1590,
+bash - 5742,  rc - 1143. Don't  be surprised when you hit  bug: dash at
+the moment I extensively studied it  (using Debian 7 version) had empty
+"trap" output and buggy printf operation.  So don't be afraid of trying
+your portable work  on multiple shells (e.g. dash and  bash), if you're
+not sure of shell misbehaviour.
+
+### 1.2. Tools of trade: BSD userland, GNU coreutils
+
+Part about  GNU/Linux in linux  name is about GNU  ecosystem, including
+coreutils, like  "cat", "sed",  "tr" and  so on.  Relevant part  of BSD
+world is called userland. Embedded systems often utilize busybox, which
+bundles all these  tools under single binary with  often too restricted
+functions even for POSIX.
+
+You  may expect  any  of these  tools  to fully  support  UTF-8, to  be
+adherent to POSIX standard and to be  bug free. Maybe in the future, so
+prepare to switch tools on occasion.
+
+Following  "do one  thing  and do  it  well", you  should  be aware  of
+existing tools not to waste time  attempting to solve your problem with
+wrong tool (like replacing newlines with sed).
+
+### 1.3. Shell scripting limitations
+
+Small subset of shell scripting deficiencies you should be aware:
+
+- speed. Lack of arrays and fancy  operations with firing subshell each
+  time you  need to do  something contributes to general  slowness. Yet
+  individual operations (be it grep or awk) provide great speed benefit
+  over scripting languages
+- subshells  consume variables: it's  hard to make piped  constructs to
+  return  multiple  values  and   impossible  to  carry  exception-like
+  messages, and so forth
+- untyped and unstructured values: shell efficiency can be extended to
+  topic of typed/binary data flows but that's another story
+
+Following comment in Structural Regular Expressions, "the silent limits
+placed on line lengths by most tools can be frustrating." [7]
+
+In general, deeper  you'll dive with shell  scripting, more limitations
+you'll  discover. Given  all  subtle details  in  every small  facility
+support (and even development) is a burden.
+
+2. Scripting basics
+-------------------
+
+As  promised in  title,  it's more  like guide,  so  I won't  duplicate
+detailed  answers  and  only  give  solutions  in  order  suitable  for
+learning.
+
+### 2.1. echo vs printf and few more details
+
+To  make  story  short,  there are  differences  between  build-in  and
+standalone echo implementations, there  are subtle backspace and option
+parsing defails,  and you  shouldn't use echo  for anything  other than
+fixed string  (preferable without  backslash and other  special chars).
+For other cases you got printf. [8]
+
+It's usually done like this:
+
+    $ a=$( printf "%a\n" "${var}" | something )
+
+Note that command substitution  consumes trailing newline, so depending
+on what  you do  you may  need trailing line  returned back.  Piping to
+while loop is quite common pattern:
+
+    $ a=$( seq 1 5 ) ; printf "%s" "$a" | \
+        while IFS= read -r var; do
+            printf "%s\n" "${var}"
+        done
+
+Which gives only 4 result lines, as we haven't write 'printf "%s\n"'.
+
+That said, you shouldn't use backticks for command substitution, always
+favouring $() notation [9]. Also note  that "read" by default reacts on
+backspaces, which is  turned off with "-r" switch. For  whole lines you
+may also use line(1) utility.
+
+In case you need sole newline character, it's done like this:
+
+    $ nl=$(printf "\n "); nl="${nl% }"
+
+There's  also no  way to  expand $'\'  bashisms, so  for sake  of being
+univarsal you just printf to variable in octal.
+
+### 2.2. Variables, eval and quotation
+
+Let's go back to string printing example:
+
+    $ printf "%s\n" "${var}"
+
+As you see,  I wrote variable inside of curly  braces inside of quotes,
+as that  being the only  safe way of  using variable (quotes  usage and
+variable expansion "${}" being separate topics). [10]
+
+Regarding "${}" safety consider next examples:
+
+    $ class="core"; var="path"; core_path="${HOME}"
+    $ eval dest=\"\$$class_$var\"
+    $ echo "Destination: ${dest}"
+
+Which won't  work until you  cover "class"  from second line  in braces
+(because it's recognized as "class_").
+
+See next example with unquoted variable evaluation:
+
+    $ AWK=mawk AWK_OPTS="-W interactive"
+    $ { while :; do date; sleep 1; done; } | $AWK $AWK_OPTS '{print}' -
+
+Next  example  splits  unquoted  QUERY_STRING  according  to  IFS  into
+positional params, available with $1, $2 and so on:
+
+    $ set -- ${QUERY_STRING}
+
+All you have to  know about "eval" operation - it  best way of shooting
+oneself  in the  foot, because  all your  newlines, semicolons  and all
+kinds of expansions take place. Don't  do it without extreme reason and
+proper quotation.
+
+Unix filenames may include newlines. All the fuzz for proper quotation,
+"xargs -0"  and such is about  safety from crashes and  other malicious
+actions (e.g. with "while read line" loops).
+
+Make it a  rule to quote variables  in double quotes any  place you use
+them  to prevent  at  least  IFS split.  Double  quotes around  command
+substitution ("$()") are not necessary.
+
+One note  for variables scope.  POSIX doesn't define "local"  for local
+variables in  functions, but  you may  find it  in literally  any shell
+around.  In  other case  just  use  unique  names and  preserve  shared
+variables (like IFS) in backups.
+
+### 2.3. Conditions and loops: if, while
+
+Let's look at syntax from this example:
+
+    [ ! -f "${list_raw}" ] ||
+        [ "${TMWW_DRYRUN}" != "yes" \
+        -a $(( $(date +%s) - $( stat ${STATSEC} "${list_raw}" ) )) \
+        -gt "${TMWW_DELTA}" 2>/dev/null ] && \
+            fetch_all
+
+When you write  conditions, "[" is equivalent to  "test" built-in (with
+"]" being optional decoration). It's quite powerful operator, but error
+messages too often  lack problem cause. First of all,  there's only "="
+being correct (which is frequent typo).
+
+Only  correct  syntax  for   shell  built-in  calculations  (arithmetic
+expansion) is "$(())":  "$ i=$(( $i + 1 ))".  More complex calculations
+are   solved  using   expr(1),  specifically   when  you   need  string
+manipulation functions without resorting to mastodon like awk.
+
+Thing you may often see in scripts  is ":" which is equivalent to "NOP"
+machine instruction and does exactly nothing. Like this:
+
+    $ while :; do date; sleep 1; done
+    $ : ${2?aborting: missing second param}
+    $ : >flush_or_create_file
+
+Few words  about "if"  statement. Tests  like '[ "x$a"  -eq "x"  ]' are
+archaic, related  to earliest  shells and absolutely  useless nowadays.
+With tests written  as "test -n" or "test -z"  you shouldn't ever think
+if variable is "empty"  or "unset", but something like '[  "$b" = "" ]'
+is good too.
+
+"while read"  piped constructs with  external calls are most  slow part
+contributing to  general scripts speed.  They also suffer from  lack of
+values with newline support. Being pretty obscure case, it still may be
+addressed with xargs [11]:
+
+    ... | tr '\n' '\0' | xargs -0 -n1
+
+### 2.4. Options parsing and validation: getopt vs getopts, case
+
+General note  on options notation:  there are short options  like "-a",
+which  can be  written concatenated,  like "-ab  'value'" depending  on
+how  smart your  option parser  is,  and GNU-style  long options,  like
+"--version" and "--help" (this two  are most ubiquitous for GNU tools).
+When you  need explicitly  tell option parser  to stop  accept options,
+there's handy "--" empty option:
+
+    $ kill -- "-${pgid}"
+    $ random_input | grep -- "${filter}"
+
+Note that "${filter}" variable in last  example may start with dash, so
+it's always good to put "--" beforehand.
+
+The only  "getopt" you should  use is  shell embedded "getopts".  If it
+happens you need  long options for thing like shell  script, you really
+should reevaluate right tool for your task. [12]
+
+Common pattern for switching "shift" usage.
+
+NOTE: if you struggle for  "yes/no" and other interactive facilities in
+    your script, remember that  you loose all scripting/piping benefits
+    of unix filter-type programs
+
+Now we  came close to "case"  instruction; there are few  hints to care
+about. First,  when you  treat cases,  make sure  you place  empty case
+before "*" wildcard (note unquoted values):
+
+    case "$s" in
+        foo) echo bar ;;
+        '') echo empty ;;
+        *)  echo else ;;
+    esac
+
+You may also do basic validation:
+
+    case "${input}" in
+        *[!0-9]*) echo "Not a number" ; ;;
+    esac
+
+These  checks  are  limited  with   glob  patterns  (same  you  use  in
+interactive sessions,  like "rm  *~"), so you  should grep/sed  for any
+stronger validation.
+
+### 2.5. Life without arrays
+
+If you can't rely on kind of mksh for array support, then there's still
+life there.
+
+The only simple way of  walking arrays is parameter substitution. Let's
+for example split word from word list:
+
+    $ array="alpha beta gamma"
+    $ head="${array%% *}"; array="${array#* }"
+
+NOTE: if you can't remember which one  for prefix and suffix, "#" is on
+    the left  (under "3") on  IBM keyboard,  which is prefix,  thus "%"
+    being suffix (you're  reading this in english anyway).  See how you
+    can split hostname from a link:
+
+    $ link="gopher://sdf.org/0/users/ulcer/"
+    $ hostname="${link#*://}"; hostname="${hostname%%/*}"
+
+The other  includes splitting by IFS  and is prone to  errors. See "4.2
+Internal field separator" chapter. The rest rely on printf and pipes:
+
+    $ a=$( printf "%s\n" "$a" | grep -v "exclude_me" )
+    $ result=$( printf "%s\n" "${date}"; while read line; do
+            ...
+        done; )
+
+Size of variable you operate is limited to size of argument you pass to
+underlying exec(3) call [13]. Usually it's order of hundred of KBs.
+
+### 2.6. Change file
+
+File edition  is not that  trivial as you  may expect. Simplest  way is
+e.g. inplace  sed editing  with GNU  sed "-i" switch.  But what  if you
+don't have GNU tools or want to edit file with awk?
+
+Usual template looks like this [14]:
+    
+    inplace() {
+        local input
+        tmp=$( mktemp )
+        [ $? -ne 0 ] && { echo failed creating temp file; exit 1; }
+        trap "rm -f '${tmp}'" 0
+        input="$1"
+        shift
+        "$@" <"${input}" >"${tmp}" && cat "${tmp}" >"${input}"
+        rm -f "${tmp}"
+    }
+    inplace "target_file" sed "s/foo/bar/"
+
+You may certainly use mv or cp, but  cat here is most safe option as it
+preserves permissions and hard links. This is behavior ed(1) provides.
+
+Regarding  attributes: cat  is surely  safest way  of writing  changes.
+One  more   or  less  complex   example  includes  sharing   files  for
+creation/removal/write  access between  group  members, which  includes
+2770 mode  on directory, umask 002  and proper FS ACL  settings. cat is
+only utility  which won't  break permissions  on modification.  In such
+environments you may additionally check files with "chmod +w".
+
+Pay attention to pending disk writes with sync utility [15].
+
+### 2.7. Check lock
+
+Depending  on system  preferences,  /var/lock or  /var/run/lock can  be
+available for unpriviliged locks.
+
+Locking  using mkdir(1)  is  preferred to  other  methods because  it's
+atomic  operation  (no  separate   "check  lock",  then  "create  lock"
+operations) and is native.
+
+    mkdir "$1" 2>/dev/null || { echo locked; exit 1; }
+
+Prepare  parent path  with separate  call,  as "mkdir  -p" will  ignore
+errors on existing target directory.
+
+3. Commentary on tools
+----------------------
+
+When you lack arrays (and given  shell execution speed) you are kind of
+forced to piping  data to specialized filter. Luckily  there are enough
+of them nowadays.
+
+### 3.1. Working with pipes: stdbuf and pv
+
+You may  essentially expect  realtime output  in piped  constructs, but
+result depends on line buffering capability of used tools.
+
+stdbuf(1) is  a wrapper which forces target tool to output  string when
+it's ready  [16]. This feature is  best employed when you  mangle heavy
+datasets. Try something like this to get better idea:
+
+    $ while :; do date; sleep 1; done | mawk -W interactive '{print}' -
+
+Fast grep  won't help you  if you pass  results over tool  without line
+buffering. Almost every  tool in your standard toolset  (grep, cut, tr,
+etc.) requires tweaks or external wrapper.
+
+Line buffering support per tool:
+
+- grep: GNU grep has "--line-buffered" switch
+- mawk: has "-W interactive" switch
+- sed: has "-u" switch
+- cat: OK
+- gawk, nawk, tr, cut: require stdbuf wrapper
+
+Solutions outside of linux vary. See [17] for detailed explanations and
+solutions  comparison (e.g.  TCL  expect "unbuffer"  program). For  awk
+"fflush()" (POSIX) may be attempted.
+
+pv(1) helps  when you want to  know quantity of data  passed over pipe,
+measure network  speed with netcat  and so  on [18]. mbuffer(1)  can be
+used as alternative to pv, exclusive for buffering tasks.
+
+### 3.2. Notes on grep
+
+Looks like in 2018 you can't market "grep" without "data science", "big
+data" and  other buzzwords.  Ok, here  are few  hints for  faster grep.
+First  of  all, "-F"  switch  stops  interpretting pattern  as  regular
+expression. Other thing  to consider - setting "LANG=C"  instead of UTF
+locale  and  utilization  of  your multiple  CPU  cores.  See  relevant
+publications [19] for xargs(1) (see  "-P" switch) and parallel(1) (note
+"--linebuffer" switch). Also don't forget about "-m" switch if you know
+you need only few matches.
+
+Again, remember  about "grep  --" when your  search argument  may start
+from dash.
+
+In case of  fuzzy search term, there's approximate  grep agrep(1). This
+tool  searches regex  patterns  for given  levelnstein distance  (which
+means  all kinds  of  letter rearrangement,  like  mixing, dropping  or
+placing extra letter). Try agrep on next example to get idea:
+
+    wesnoth     # agrep -0 wesnoth
+    wesnoht     # agrep -1 wesnoth
+    westnorth   # agrep -2 wesnoth
+    western     # agrep -3 wesnoth
+
+GNU grep is also good for searching binary data:
+
+    $ LANG=C grep -obUaP "PK\x03\x04" chrome_extension.crx
+
+Which can  also be performed with  binwalk(1). And if you  just want to
+peek at file for readable strings, there's coreutils strings(1) tool.
+
+### 3.3. Notes on sed
+
+Most important  thing you should remember  about sed - it's  a tool and
+not programming  language. People  may write brainfuck  interpreters in
+sed - just leave them alone.
+
+You  probably know  about  legacy  of basic  and  extended versions  of
+regular  expressions  (try  man  7  regex on  Linux)  -  "Some  people,
+when  confronted  with a  problem,  think  "I  know, I'll  use  regular
+expressions."  Now they  have two  problems" //Jamie  Zawinski. Non  of
+these  being POSIX  or  GNU knows  about  non-greedy quantifier.  Usual
+workaround for look-ahead feature for single character looks like this:
+
+    $ echo "foo https://www.ietf.org/standards/ bar" | \
+        sed 's|http[s]://\([^/]*\)/[^ ]*|\1|'
+    foo www.ietf.org bar
+
+For non-greedy  replacement of  character sequence, target  sequence is
+first replaced with unique for  given input character and then followed
+previous example.
+
+If  you want  to avoid  sed extended  regexp flag  inconsistency, usual
+thing lacking in basic regexp is  "?" quantifier, which can be emulated
+with "\(x|\)" kind of expression (sed prefers leftmost matching part).
+
+GNU sed is unicode aware and supports lower/upper case conversion which
+works like this:
+
+    $ echo Aa Bb Cc | sed 's/\(..\) \(..\) \(..\)/\L\1 \U\2 \E\3/'
+    aa BB Cc
+
+Depending on  implementation sed  may force you  to write  each command
+under separate "-e"  option and can be strict  about closing semicolons
+";", like here:
+
+    $ sed -n '/marker/{p;q;}' example
+
+Safe assumption about sed is it  doesn't know about escape sequences so
+you have to put desired character either literally (e.g. tab character)
+or from shell variable, like "tabchar=$( printf \011 )".
+
+### 3.4. Notes on awk
+
+Which awk? Short answer is: gawk when you need UTF-8 support, mawk when
+you don't. Relevant literature: mawk  vs gawk and other languages speed
+comparison [20].
+
+mawk 1.3.3 which is most widely distributed version suffers from number
+of sore bugs, like lack of regex quantifiers "{}" support.
+
+Few survival hints for awk:
+
+- delete array: split ("", array)
+- variable scope  inside of function: should be  array, like global[0],
+  to be mutable
+
+### 3.5. Notes on portable syntax
+
+When you want to know if tool  is available, most portable way is using
+"command -v" which should be built-in:
+
+    $ AWK=$( command -v mawk 2>/dev/null ); AWK="${AWK:-awk}"
+
+Sometimes  you  have  to  access  user  local  directories,  which  FHS
+(Filesystem  Hierarchy Standard)  doesn't cover.  Two well  established
+paths   are  "~/.config"   and  "~/.local/share".   There  is   also  X
+Desktop  Group  approach  of  searching  ~/.config/user-dirs.dirc  with
+xdg-user-dir(1) with  XDG_CONFIG_HOME and  XDG_CACHE_HOME corresponding
+to  previously mentioned  dirs. Graceful  query of  local configuration
+path may look like this, but it's most certainly just "~/.config/":
+
+    $ config="${${XDG_CONFIG_HOME:-${HOME}/.config}/ACMETOOL/config}"
+
+Temporary  files  can   be  attempted  at  TMPDIR   (which  is  POSIX),
+XDG_RUNTIME_DIR  (which  is  relatively   recent  addition),  and  then
+resorted to /tmp.
+
+Most common GNU/BSD discrepancies:
+
+- sed extended regex switch: "sed -r" vs "sed -E"
+- print file in reverse order: "tac" vs "tail -r"
+- file modification date in seconds since epoch:
+  "stat -c %Z" vs "stat -f %Uc"
+
+BSD naming of GNU utils starts  with "g", like "gawk": "gdate", "gsed",
+etc.  BSD date  is different  from GNU  date in  some details.  Further
+examples for ISO8601 works well for both date versions:
+
+    $ date -u +'%Y-%m-%dT%H:%M:%SZ'
+    $ echo '2018-03-05T19:24:21Z' | date +%s
+
+Last but not least, your  sort(1) results surprisingly may vary between
+systems depending on LC_COLLATE setting.
+
+### 3.6. Notes on UTF-8 compatibility
+
+gawk  works with  UTF-8 by  default. awk  language wasn't  crafted with
+multibyte encoding in mind, so there could be problems if you work with
+binary data.  By default sprintf("%c",  150) will print  multibyte char
+like "0xC2 0x96" and fail to compare string if you pass 0x96 from shell
+variable like 'printf "\226"' in  dash. gawk here requires "-b" switch,
+mawk works well by default.
+
+GNU  sed is  unicode aware.  Other  seds support  vary; without  proper
+support you won't get it working at all because of improper single char
+"." length.
+
+GNU "wc  -c" still doesn't  count UTF  chars properly, tr  also doesn't
+work here, so you  have to resort to sed "y" command  with GNU sed. You
+shouldn't rely on shell "${#var}"  expansion as it still often displays
+number of bytes and not characters.
+
+### 3.7. Working with XML and HTML: curl, tidy and xmlstarlet
+
+This is relevant to web page scraping. 
+
+There are  two URL  encodings you may  encounter: punycode  and percent
+encoding. Punycode  of "xn--"  prefix covers  internationalized domains
+and can be  converted back and forth with idn(1).  Percent encoding can
+be reversed with:
+
+    $ echo 'a%20b+c' | sed "s|+| |g;s|%|\\\\x|g" | xargs -0 printf "%b"
+
+Pages are usually grabbed with curl(1)  or wget(1) with wget being more
+suitable for  mirroring/recursive download.  curl invokation  with user
+agent set and requesting compressed data:
+
+    $ curl -H 'Accept-encoding: gzip' | gunzip -
+    $ curl -H 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) \
+        AppleWebKit/537.36 (KHTML, like Gecko) \
+        Chrome/40.0.2214.85 Safari/537.36'
+
+Picky servers require  referer and user agent to be  set. See also curl
+manpage for  "retry" set of  options for responsible downloads.  If you
+fetch  data repeatedly  within some  seconds, curl  is responsible  for
+timeout  delays, where  not a  single options  ensures wget  to run  in
+defined time.
+
+Don't forget to strip CR characters with "tr -d '\r'".
+
+When you're  done fetching, it's  time to  convert your HTML  source to
+uniformed XML.  tidy(1) is corrects  and reformats HTML  to well-formed
+XHTML [21]:
+
+    $ tidy -iqw0 -asxml input.html >output.xml
+
+When you finished scalpeling sample  input, you may validate and pretty
+print it with xmllint(1), bundled with libxml(3):
+
+    $ xmllint --format ugly.xml >pretty.xml
+
+Now  it's time  to finally  make queries.  xmlstarlet(1) "sel"  command
+provides compact way of writing XSLT right on command line:
+
+    $ xmlstarlet sel --help
+
+XML tree structure inspection command is handy for unfamiliar input:
+
+    $ xmlstarlet el -u
+
+Finally,  you  may  omit  schema definition  by  using  default  schema
+shortcut "_":
+
+    $ xmlstarlet sel -t -v "//_:p[@content]"
+
+One notable  limitation of  xmlstarlet is input  file size.  It doesn't
+provide SAX parser and will fail on files of few hundred MB size.
+
+### 3.8. Working with JSON: jq
+
+JSON  (RFC4627)  does  what  it  has  to  -  serializes  data  in  text
+representation without much  bloat, so you can read it  without kind of
+decoder [22]. It  lacks standard validation methods, but  work has been
+done in that direction [23].
+
+Best tool to mutate and query JSON data is jq, which is already popular
+enough.
+
+I should mention that YAML with entity per line also lacks bloat of XML
+and is just perfect for parsing with awk without extra tools.
+
+jq  is also  tolerant to  JSON  lines input  (each line  is valid  json
+expression) [24], which is compromise for mungling it with grep/awk and
+jq and solves disgusting problem of root braces {}.
+
+Just an example jq call to rename field "a" to "b":
+
+    $ jq -c 'with_entries(if .key == "a" then {key:"e",value} \
+        else . end)'
+
+### 3.9. Working with CSV: miller
+
+Most common  predecessor for CSV  data is some flavour  of spreadsheet.
+There  is ubiquitour  python-based  csvkit, but  probably more  correct
+would be Gnumeric supplementary converter [25]:
+
+    $ ssconvert input.xls output.csv
+
+Now  that we  have our  data ready,  let's process  it. Without  quoted
+values, usual tools are enough: awk with "-F" flag, cut, sort with "-k"
+flag. Handy shortcut for skipping CSV fields on search:
+
+    $ field="[^,${tabchar}]+[,${tabchar}]"
+    $ egrep -m1 "^${field}${field}${search_string}[,${tabchar}]"
+
+See "4.2 Internal field separator" chapter for more examples for CSV.
+
+miller(1) [26] jumps  in straight where jq got its  place: it's easy to
+drag around  single binary, it combines  speed of awk with  features of
+popular  scripting  languages CSV  tools.  Recently  (around 2016?)  it
+finally got double quoted RFC4180 compliant CSV support.
+
+Depending  on your  language preferences,  there  are too  much of  CSV
+processing tools. Two of such are  csvkit and q (both in python). While
+csvkit being obvious, q is way to query CSV with SQL [27].
+
+
+4. Advanced topics
+------------------
+
+Next problems are not related to average scripting needs. As was stated
+before, think twice about right choice of tool.
+
+### 4.1. Reading user input
+
+You may  attach GNU readline  capabilities for any input  using rlwrap,
+just  note that  it'll obviously  store input  history (consult  rlwrap
+manpage). Here is Debian specific example for running SDF chat program:
+
+    $ rlwrap annotate-output ssh ulcer@sdf.org 'com 2>/dev/null'
+
+For  timeout  of  line/char  reading routins,  most  portable  solution
+includes stty with  dd. In other case you may  get "line -t", coreutils
+timeout(1) or bash "read -t" working.
+
+### 4.2. Internal field separator
+
+Which  you usually  shouldn't  touch, because  this  path carries  only
+pitfalls.
+
+IFS  is  composed of  characters,  which  act  as field  separator  for
+unquoted values in eval loop. First  IFS char works for output too. IFS
+can be  handy when  you are  certain about  proper composition  of your
+input.  Any  user  provided  input  without  proper  quotation  carries
+possibility of execution of arbitrary code.
+
+Let's see how it works:
+
+    $ tab=$( printf '\011' )
+    $ get_element() { eval printf \"\%s\" \$$(( $1 + 1 )) ; }
+    $ get_csv() { local id IFS; id="$1"; shift; IFS=",${tab}"
+        get_element $id $* ; }
+    $ get_csv 3 'foo,\\$(date);date \$(date),bar'
+    bar
+
+    $ print_csv() { local IFS; IFS=,; printf "%s" "$*"; }
+    $ print_csv a b c
+    a,b,c
+
+Such  code doesn't  outsource tasks  to external  calls and  especially
+pipes of external  calls, but itself doesn't  provide greater advantage
+over e.g. printf to cut(1) though.
+
+IFS is often used in read cycles:
+
+    # read whole line
+    while IFS= read -r line; do
+        printf "%s\n" "${line}"
+    done
+
+    # read CSV fields with residue going into $c3
+    debug() { printf "<%s>\n" "$@"; }
+    while IFS=, read -r c1 c2 c3; do
+        debug "$c1" "$c2" "$c3"
+    done <csv_example
+
+Preserve your IFS  in some variable if you're going  to write script to
+be  inlined somewhere.  Also  note  that there's  special  set of  unit
+separation characters from ASCII, good for unique IFS: 1C-1F (see RFC20
+or try man 7 ascii).
+
+### 4.3. Command line options manupulation
+
+You don't usually want to do this, though there are few useful cases.
+
+Options restored  for getopts  parsing require resetting  of previously
+invoked getopts  with OPTIND set to  1. This is also  important if your
+script is going to be inlined.
+
+    OPTIND=1
+    while getopts ...
+
+Example code to  preserve and rearrange (as seen  with "prefix" leading
+parameter) positional params:
+
+    cmd_prefix="prefix"
+
+    escape_params() {
+        for i in "$@"; do
+            printf "%s" "$i" | sed -e "s/'/'\"'\"'/g" -e "s/.*/'&' /"
+        done
+    }
+
+    params="${cmd_prefix} "$( escape_params "$@" )
+    printf "DEBUG %s\n" "${params}"
+    eval set -- ${params}
+    printf "DEBUG arg: \"%s\"\n" "$@"
+
+    shift 3
+
+    # save params
+    params=$( escape_params "$@" )
+
+    # split string
+    split_me="a:b:c"
+    backifs="${IFS}"
+    IFS=:
+    set -- ${split_me}
+    printf "TEST arg: \"%s\"\n" "$@"
+    IFS="${backifs}"
+
+    # restore params
+    eval set -- ${params}
+    printf "DEBUG arg: \"%s\"\n" "$@"
+
+This code doesn't handle parameters with newlines.
+
+### 4.4. Nested constructions difficulties and recursion
+
+Pipes  spawn  subshells. This  is  a  problem  because you  can't  pass
+variable from  subshell script to  parent script, which  causes painful
+code rearrangements and workarounds.
+
+One workaround  for being  unable to  pass variable  upwards is  to use
+temporary files as stdin for e.g.  while loops. Other way is capture of
+stdout/stderr output  into variable. Make  sure you know  what "Useless
+Use of cat Award" is about [28].
+
+You  should  make  habit  of  writing  conditional  switches  in  whole
+"if-then-else" form and not compact "[ ] &&/|| something" form, for "["
+being shell build-in and rarely incorrectly interpreted.
+
+Recursion is  useful in shell  scripts, because without  piped subshell
+calls scope of variables doesn't  go isolated. Safe assumption would be
+something below  1000 calls (artificial  limit on mksh and  zsh, others
+prefer crash). Test with:
+
+    $ sh -c 'a() { echo $1; a $(( $1 + 1 )); }; a 1'
+
+### 4.5. Libraries and trap cascading
+
+You may source heavy chunks of code formed in libraries, which may also
+perform  some  kind  of  initialization. One  way  of  preventing  such
+duplicate init code runs is dedicated library management with core code
+like this:
+
+    require_plugin() {
+        if ! printf "%s" "${plugin_array}" | \
+            grep -qw "$1" 2>/dev/null; then
+            echo >&2 "Exporting: $1"
+            plugin_array="${plugin_array} $1"
+            . "$LIBPATH/$1"
+        fi
+    }
+
+Your very  first inlined  script will rise  question about  parent trap
+handlers preservation. Here is proposed solution:
+
+    # $1 -- trap name (to prevent duplicates)
+    # $2 -- trap command
+    # $3 $* -- signals
+    trap_add() {
+        # stay silent on incorrect options and on fail to set trap
+        [ -z "$3" ] && return
+        printf "%s" "${trap_array}" | grep -qw "$1" 2>/dev/null && return 0
+        trap_array="${trap_array} $1 "
+        trap_cmd="$2"; shift 2
+        for trap_signal in "$@"; do
+            trap -- "$(
+                extract_trap_cmd() { printf '%s\n' "$3"; }
+                eval extract_trap_cmd $( trap | \
+                    sed -n "H;/^trap --/h;/${trap_signal}$/{x;p;q;}" )
+                printf '%s\n' "${trap_cmd}"
+            );" "${trap_signal}" || return
+        done
+    }
+    # debug
+    trap_add test 'echo 123' INT TERM EXIT
+    trap_add test2 'date' INT TERM EXIT
+    trap
+
+Never  forget to  test your  code chunks  in multiple  shells, as  e.g.
+dash  and mksh  do not  provide  POSIX exception  for treating  command
+substitution  with empty  trap as  not called  from subshell,  where it
+should dump existing signal handlers  (so former example will work only
+in bash/zsh and require preservation  of all trapped signal handlers in
+dedicated variables for being portable).
+
+### 4.6. Debugging
+
+Debugging shell  scripts is done either  with "set -x" shell  option to
+output  executed commands  with timestamp,  which also  works well  for
+performance troubleshooting, or with debug printfs all around the code.
+
+Usual debug routine is 'printf "debug \"%s\"\n" "$@"', which expands to
+param per line.
+
+hexdump(1) may  be missed  on target  machine. Alternatives  are xxd(1)
+often distributed with vim(1) or od(1), which od being most ubiquitous.
+
+Problem cases can be much obscure.  One common pitfall is forgotten ";"
+inside of "$()"/"{}"/"()" constructs  with closing parentheses being on
+same line with last instruction.
+
+### 4.7. Testing and deploying in new environment
+
+shtest [29] is a single file  in POSIX shell without any dependency. It
+takes different approach  from unit tests in that is  doesn't force you
+to write anything. You copy commands  to be tested with some prefix (by
+default with "$", like any  documentation does), run "shtest -r", which
+records those commands  output and exit statuses and  finally run tests
+in new  environment (or under  different shell)  to get diff  output if
+something  went  wrong. Also  shtest  tests  are easily  embeddable  in
+markdown documentation.
+
+shtest was inspired  by similar cram tool in python  [30], just that it
+doesn't need python to run.
+
+For  more  systematic   approach  see  BATS  [31],   which  can  output
+TAP-compatible messages, suitable for continuous integration.
+
+### 4.8. Networking with shell
+
+This one  is completely esoteric  part, which carries  little practical
+value.  With  already mentioned  curl,  doing  its  job for  HTTP  (and
+GOPHER!) protocols,  it's horribly inefficient  but yet possible  to do
+simple tasks with binary data flow  under just shell and awk. You still
+need few specialized tools.
+
+tcpick(8) encodes byte streams into hex [32]:
+
+    /usr/bin/stdbuf -oL /usr/sbin/tcpick -i eth0 \
+        "src $1 && port 5122 && \
+            tcp[((tcp[12:1] & 0xf0) >> 2):2] = 0x9500" -yH | awk ...
+
+Actually, you  may do full-fledged  networking with just netcat  and sh
+[33]. This  one was  functional online game  client. Netcat  stream was
+read  word by  word with  dd, expect-like  behavior and  binary packets
+parsing were  done in pure  shell. It still  serves as good  example on
+scalpeling binary data with only shell.
+
+### 4.9. Paste safety
+
+It's survival guide  after all, so let's step away  from target subject
+and look at how you actually  do scripting. Obviously, noone reads mans
+and writes code by copying parts from web.
+
+See this question  [34] for details and at the  very least inspect your
+paste with "xsel -o | hd".
+
+5. Further reading
+------------------
+
+POSIX standard is your best friend [35].
+
+You should  obviously see manpages.  Dash and mawk manpages  are pretty
+excellent and  compact for learning  corresponding topics and  using as
+language reference.
+
+For GNU bloatware important info  is often contained within GNU info(1)
+infopages (which means man pages miss what you may seek, take a look at
+e.g. sed). This  format should certainly diy  one day but so  far it is
+accessible  with info(1)  or  somewhat abandoned  pinfo(1) for  colored
+output. And of course is available at [36].
+
+Then take a look at next resources:
+
+- comp.unix.questions  / comp.unix.shell  archived FAQ,  which contains
+  still relevant answers for particular scripting topics [37].
+- harmful.cat-v.org [38]
+
+And finally few of individual widely circulated pages:
+
+- Rich's POSIX sh tricks, covering advanced topics [39]
+- Sculpting text with regex, grep, sed, awk [40]
+- 7 command-line tools for data science [41]
+
+Bash FAQ, which still covers lot of newbie POSIX-related pitfalls: [42]
+
+6. References
+-------------
+
+1. Introduction
+
+[1] Ubuntu Wiki, "Dash as /bin/sh"
+    https://wiki.ubuntu.com/DashAsBinSh
+[2] Greg's Wiki, "How to make bash scripts work in dash"
+    https://mywiki.wooledge.org/Bashism
+[3] checkbashisms - check for bashisms in /bin/sh scripts
+    https://manpages.debian.org/testing/devscripts/checkbashisms.1.en.html
+[4] Tom Christiansen, "Csh Programming Considered Harmful", 1996-10-06
+    http://harmful.cat-v.org/software/csh
+[5] Bruce Barnett, "Top Ten Reasons not to use the C shell", 2009-06-28
+    http://www.grymoire.com/unix/CshTop10.txt
+[6] Tom Duff, "Rc — The Plan 9 Shell"
+    http://doc.cat-v.org/plan_9/4th_edition/papers/rc
+[7] Rob Pike, "Structural Regular Expressions", 1987
+    http://doc.cat-v.org/bell_labs/structural_regexps/se.pdf
+
+2. Scripting basics
+
+[8] Stéphane Chazelas. "Why is printf better than echo?"
+    https://unix.stackexchange.com/a/65819
+[9] Why is $(...) preferred over `...` (backticks)?
+    http://mywiki.wooledge.org/BashFAQ/082
+[10] Fred Foo. "When do we need curly braces around shell variables?"
+    https://stackoverflow.com/a/8748880
+[11] Tobia. Make xargs execute the command once for each line of input
+    https://stackoverflow.com/a/28806991
+[12] Dennis Williamson. "Cross-platform getopt for a shell script"
+    https://stackoverflow.com/a/2728625
+[13] Graeme. "What defines the maximum size for a command single argument?"
+    https://unix.stackexchange.com/a/120842
+[14] William Pursell. "sed edit file in place"
+    https://stackoverflow.com/a/12696585
+[15] Wikipedia - sync (Unix)
+    https://en.wikipedia.org/wiki/Sync_(Unix)
+
+3. Commentary on tools
+
+[16] Pádraig Brady, "stdio buffering", 2006-05-26
+    http://www.pixelbeat.org/programming/stdio_buffering/
+[17] Aaron Digulla. "Turn off buffering in pipe"
+    https://unix.stackexchange.com/questions/25372/turn-off-buffering-in-pipe
+[18] Martin Streicher, "Speaking UNIX: Peering into pipes", 2009-11-03
+    https://www.ibm.com/developerworks/aix/library/au-spunix_pipeviewer/index.html
+[19] Adam Drake, "Command-line Tools can be 235x Faster than your Hadoop Cluster", 2014-01-18
+    https://aadrake.com/command-line-tools-can-be-235x-faster-than-your-hadoop-cluster.html
+[20] Brendan O'Connor, "Don’t MAWK AWK – the fastest and most elegant big data munging language!", 2012-10-25
+    https://brenocon.com/blog/2009/09/dont-mawk-awk-the-fastest-and-most-elegant-big-data-munging-language/
+[21] The granddaddy of HTML tools, with support for modern standards
+    https://github.com/htacg/tidy-html5
+[22] Douglas Crockford, "JSON: The Fat-Free Alternative to XML", 2006-12-06
+    http://www.json.org/fatfree.html
+[23] JSON Schema is a vocabulary that allows you to annotate and validate JSON documents
+    http://json-schema.org/
+[24] JSON Lines
+    http://jsonlines.org/
+[25] The Gnumeric Manual, "Converting Files"
+    https://help.gnome.org/users/gnumeric/stable/sect-files-ssconvert.html.en
+[26] Miller is like awk, sed, cut, join, and sort for CSV
+    https://johnkerl.org/miller/doc/index.html
+[27] Run SQL directly on CSV files
+    http://harelba.github.io/q/
+
+4. Advanced topics
+
+[28] Useless Use of Cat Award
+    http://porkmail.org/era/unix/award.html#uucaletter
+[29] shtest - run command line tests
+    https://github.com/uuuuu/shtest
+[30] Cram is a functional testing framework based on Mercurial's unified test format
+    https://bitheap.org/cram/
+[31] Bats: Bash Automated Testing System
+    https://github.com/sstephenson/bats
+[32] tcpick with awk example
+    https://github.com/uuuuu/tmww/blob/master/utils/accsniffer
+[33] shamana - tmwa ghetto bot engine made with POSIX shell 
+    https://github.com/uuuuu/shamana
+[34] Sam Hocevar. "How can I protect myself from this kind of clipboard abuse?"
+    https://security.stackexchange.com/questions/39118/how-can-i-protect-myself-from-this-kind-of-clipboard-abuse
+
+5. Further reading
+
+[35] The Open Group Base Specifications Issue 7, 2016 Edition
+    http://pubs.opengroup.org/onlinepubs/9699919799/
+[36] GNU Coreutils
+    https://www.gnu.org/software/coreutils/manual/html_node/index.html
+[37] Unix - Frequently Asked Questions
+    http://www.faqs.org/faqs/unix-faq/faq/
+[38] Encyclopedia of things considered harmful
+    http://harmful.cat-v.org/
+[39] Rich’s sh (POSIX shell) tricks
+    http://www.etalabs.net/sh_tricks.html
+[40] Matt Might: Sculpting text with regex, grep, sed, awk
+    http://matt.might.net/articles/sculpting-text/
+[41] Jeroen Janssens, "7 command-line tools for data science", 2013-09-19
+    http://jeroenjanssens.com/2013/09/19/seven-command-line-tools-for-data-science.html
+[42] Greg's Wiki, "Bash Pitfalls"
+    http://mywiki.wooledge.org/BashPitfalls
+
+7. Changelog
+------------
+
+2018-03-08 initial release
+
