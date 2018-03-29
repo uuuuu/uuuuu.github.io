@@ -6,7 +6,7 @@ POSIX Shell Scripting Survival Guide
 Authors: ulcer <ulcer@sdf.org>
 License: CC-BY-SA 4.0
 Published: 2018-03-08
-Updated: 2018-03-08
+Updated: 2018-03-29
 Link: gopher://sdf.org/0/users/ulcer/kb/kb/article-script-survival.md
 Mirror: https://uuuuu.github.io/article-script-survival.txt
 
@@ -33,7 +33,7 @@ Table of contents:
     3.4. Notes on awk
     3.5. Notes on portable syntax
     3.6. Notes on UTF-8 compatibility
-    3.7. Working with XML and HTML: curl, tidy and xmlstarlet
+    3.7. Working with XML and HTML: curl, tidy, xmlstarlet and others
     3.8. Working with JSON: jq
     3.9. Working with CSV: miller
 4. Advanced topics
@@ -196,6 +196,13 @@ In case you need sole newline character, it's done like this:
 There's  also no  way to  expand $'\'  bashisms, so  for sake  of being
 univarsal you just printf to variable in octal.
 
+You may see redirections in certain order, which is important. Like this:
+
+    $ date >/dev/null 2&>1
+
+One thing you should remember about them: they take precedence in order
+they are written, so writing "2>&1 >/dev/null" won't disable stderr.
+
 ### 2.2. Variables, eval and quotation
 
 Let's go back to string printing example:
@@ -357,6 +364,23 @@ Internal field separator" chapter. The rest rely on printf and pipes:
 
 Size of variable you operate is limited to size of argument you pass to
 underlying exec(3) call [13]. Usually it's order of hundred of KBs.
+
+When you don't want to use awk's "getline" while-cycles, usual practice
+is feeding  awk with  multiple files  and comparing  end of  first with
+NR==FNR check:
+
+    $ echo www-data | awk 'NR==FNR{split($0,a,":"); b[a[1]]=$0; next} \
+        {print 123, b[$1]}' /etc/passwd -
+
+Furthermore, jump  between files listed  on command line is  done with 
+"nextfile" awk  command, which  is not POSIX  but is  widely supported 
+(e.g. with gawk and mawk).                                                      
+
+In order to pass  more data to awk(1) with line  oriented data you may 
+send it as awk variable:                                               
+
+    $ a=$( seq 1 10; ); echo | mawk -v a="$a" \
+        'END{split(a,f,"\n"); for (i in f) print f[i]}'
 
 ### 2.6. Change file
 
@@ -641,12 +665,17 @@ shortcut "_":
 One notable  limitation of  xmlstarlet is input  file size.  It doesn't
 provide SAX parser and will fail on files of few hundred MB size.
 
+Most important,  W3 maintains  set of C  tools dedicated  for XML/HTML 
+works,  like  hxtoc  TOC  creation,  hxpipe  conversion  to  YAML-like 
+structure, more usable for awk(1)  parsing, hxselect for quarying with 
+CSS selector and others [22].                                            
+
 ### 3.8. Working with JSON: jq
 
 JSON  (RFC4627)  does  what  it  has  to  -  serializes  data  in  text
 representation without much  bloat, so you can read it  without kind of
-decoder [22]. It  lacks standard validation methods, but  work has been
-done in that direction [23].
+decoder [23]. It  lacks standard validation methods, but  work has been
+done in that direction [24].
 
 Best tool to mutate and query JSON data is jq, which is already popular
 enough.
@@ -655,7 +684,7 @@ I should mention that YAML with entity per line also lacks bloat of XML
 and is just perfect for parsing with awk without extra tools.
 
 jq  is also  tolerant to  JSON  lines input  (each line  is valid  json
-expression) [24], which is compromise for mungling it with grep/awk and
+expression) [25], which is compromise for mungling it with grep/awk and
 jq and solves disgusting problem of root braces {}.
 
 Just an example jq call to rename field "a" to "b":
@@ -667,7 +696,7 @@ Just an example jq call to rename field "a" to "b":
 
 Most common  predecessor for CSV  data is some flavour  of spreadsheet.
 There  is ubiquitour  python-based  csvkit, but  probably more  correct
-would be Gnumeric supplementary converter [25]:
+would be Gnumeric supplementary converter [26]:
 
     $ ssconvert input.xls output.csv
 
@@ -680,14 +709,14 @@ flag. Handy shortcut for skipping CSV fields on search:
 
 See "4.2 Internal field separator" chapter for more examples for CSV.
 
-miller(1) [26] jumps  in straight where jq got its  place: it's easy to
+miller(1) [27] jumps  in straight where jq got its  place: it's easy to
 drag around  single binary, it combines  speed of awk with  features of
 popular  scripting  languages CSV  tools.  Recently  (around 2016?)  it
 finally got double quoted RFC4180 compliant CSV support.
 
 Depending  on your  language preferences,  there  are too  much of  CSV
 processing tools. Two of such are  csvkit and q (both in python). While
-csvkit being obvious, q is way to query CSV with SQL [27].
+csvkit being obvious, q is way to query CSV with SQL [28].
 
 
 4. Advanced topics
@@ -809,7 +838,7 @@ code rearrangements and workarounds.
 One workaround  for being  unable to  pass variable  upwards is  to use
 temporary files as stdin for e.g.  while loops. Other way is capture of
 stdout/stderr output  into variable. Make  sure you know  what "Useless
-Use of cat Award" is about [28].
+Use of cat Award" is about [30].
 
 You  should  make  habit  of  writing  conditional  switches  in  whole
 "if-then-else" form and not compact "[ ] &&/|| something" form, for "["
@@ -898,10 +927,10 @@ in new  environment (or under  different shell)  to get diff  output if
 something  went  wrong. Also  shtest  tests  are easily  embeddable  in
 markdown documentation.
 
-shtest was inspired  by similar cram tool in python  [30], just that it
+shtest was inspired  by similar cram tool in python  [31], just that it
 doesn't need python to run.
 
-For  more  systematic   approach  see  BATS  [31],   which  can  output
+For  more  systematic   approach  see  BATS  [32],   which  can  output
 TAP-compatible messages, suitable for continuous integration.
 
 ### 4.8. Networking with shell
@@ -912,14 +941,14 @@ GOPHER!) protocols,  it's horribly inefficient  but yet possible  to do
 simple tasks with binary data flow  under just shell and awk. You still
 need few specialized tools.
 
-tcpick(8) encodes byte streams into hex [32]:
+tcpick(8) encodes byte streams into hex [33]:
 
     /usr/bin/stdbuf -oL /usr/sbin/tcpick -i eth0 \
         "src $1 && port 5122 && \
             tcp[((tcp[12:1] & 0xf0) >> 2):2] = 0x9500" -yH | awk ...
 
 Actually, you  may do full-fledged  networking with just netcat  and sh
-[33]. This  one was  functional online game  client. Netcat  stream was
+[34]. This  one was  functional online game  client. Netcat  stream was
 read  word by  word with  dd, expect-like  behavior and  binary packets
 parsing were  done in pure  shell. It still  serves as good  example on
 scalpeling binary data with only shell.
@@ -930,13 +959,13 @@ It's survival guide  after all, so let's step away  from target subject
 and look at how you actually  do scripting. Obviously, noone reads mans
 and writes code by copying parts from web.
 
-See this question  [34] for details and at the  very least inspect your
+See this question  [35] for details and at the  very least inspect your
 paste with "xsel -o | hd".
 
 5. Further reading
 ------------------
 
-POSIX standard is your best friend [35].
+POSIX standard is your best friend [36].
 
 You should  obviously see manpages.  Dash and mawk manpages  are pretty
 excellent and  compact for learning  corresponding topics and  using as
@@ -946,21 +975,21 @@ For GNU bloatware important info  is often contained within GNU info(1)
 infopages (which means man pages miss what you may seek, take a look at
 e.g. sed). This  format should certainly diy  one day but so  far it is
 accessible  with info(1)  or  somewhat abandoned  pinfo(1) for  colored
-output. And of course is available at [36].
+output. And of course is available at [37].
 
 Then take a look at next resources:
 
 - comp.unix.questions  / comp.unix.shell  archived FAQ,  which contains
-  still relevant answers for particular scripting topics [37].
-- harmful.cat-v.org [38]
+  still relevant answers for particular scripting topics [38].
+- harmful.cat-v.org [39]
 
 And finally few of individual widely circulated pages:
 
-- Rich's POSIX sh tricks, covering advanced topics [39]
-- Sculpting text with regex, grep, sed, awk [40]
-- 7 command-line tools for data science [41]
+- Rich's POSIX sh tricks, covering advanced topics [40]
+- Sculpting text with regex, grep, sed, awk [41]
+- 7 command-line tools for data science [42]
 
-Bash FAQ, which still covers lot of newbie POSIX-related pitfalls: [42]
+Bash FAQ, which still covers lot of newbie POSIX-related pitfalls: [43]
 
 6. References
 -------------
@@ -1015,57 +1044,61 @@ Bash FAQ, which still covers lot of newbie POSIX-related pitfalls: [42]
     https://brenocon.com/blog/2009/09/dont-mawk-awk-the-fastest-and-most-elegant-big-data-munging-language/
 [21] The granddaddy of HTML tools, with support for modern standards
     https://github.com/htacg/tidy-html5
-[22] Douglas Crockford, "JSON: The Fat-Free Alternative to XML", 2006-12-06
+[22] HTML and XML manipulation utilities
+    https://www.w3.org/Tools/HTML-XML-utils/README
+[23] Douglas Crockford, "JSON: The Fat-Free Alternative to XML", 2006-12-06
     http://www.json.org/fatfree.html
-[23] JSON Schema is a vocabulary that allows you to annotate and validate JSON documents
+[24] JSON Schema is a vocabulary that allows you to annotate and validate JSON documents
     http://json-schema.org/
-[24] JSON Lines
+[25] JSON Lines
     http://jsonlines.org/
-[25] The Gnumeric Manual, "Converting Files"
+[26] The Gnumeric Manual, "Converting Files"
     https://help.gnome.org/users/gnumeric/stable/sect-files-ssconvert.html.en
-[26] Miller is like awk, sed, cut, join, and sort for CSV
+[27] Miller is like awk, sed, cut, join, and sort for CSV
     https://johnkerl.org/miller/doc/index.html
-[27] Run SQL directly on CSV files
+[28] Run SQL directly on CSV files
     http://harelba.github.io/q/
 
 4. Advanced topics
 
-[28] Useless Use of Cat Award
+[29] Useless Use of Cat Award
     http://porkmail.org/era/unix/award.html#uucaletter
-[29] shtest - run command line tests
+[30] shtest - run command line tests
     https://github.com/uuuuu/shtest
-[30] Cram is a functional testing framework based on Mercurial's unified test format
+[31] Cram is a functional testing framework based on Mercurial's unified test format
     https://bitheap.org/cram/
-[31] Bats: Bash Automated Testing System
+[32] Bats: Bash Automated Testing System
     https://github.com/sstephenson/bats
-[32] tcpick with awk example
+[33] tcpick with awk example
     https://github.com/uuuuu/tmww/blob/master/utils/accsniffer
-[33] shamana - tmwa ghetto bot engine made with POSIX shell 
+[34] shamana - tmwa ghetto bot engine made with POSIX shell 
     https://github.com/uuuuu/shamana
-[34] Sam Hocevar. "How can I protect myself from this kind of clipboard abuse?"
+[35] Sam Hocevar. "How can I protect myself from this kind of clipboard abuse?"
     https://security.stackexchange.com/questions/39118/how-can-i-protect-myself-from-this-kind-of-clipboard-abuse
 
 5. Further reading
 
-[35] The Open Group Base Specifications Issue 7, 2016 Edition
+[36] The Open Group Base Specifications Issue 7, 2016 Edition
     http://pubs.opengroup.org/onlinepubs/9699919799/
-[36] GNU Coreutils
+[37] GNU Coreutils
     https://www.gnu.org/software/coreutils/manual/html_node/index.html
-[37] Unix - Frequently Asked Questions
+[38] Unix - Frequently Asked Questions
     http://www.faqs.org/faqs/unix-faq/faq/
-[38] Encyclopedia of things considered harmful
+[39] Encyclopedia of things considered harmful
     http://harmful.cat-v.org/
-[39] Rich’s sh (POSIX shell) tricks
+[40] Rich’s sh (POSIX shell) tricks
     http://www.etalabs.net/sh_tricks.html
-[40] Matt Might: Sculpting text with regex, grep, sed, awk
+[41] Matt Might: Sculpting text with regex, grep, sed, awk
     http://matt.might.net/articles/sculpting-text/
-[41] Jeroen Janssens, "7 command-line tools for data science", 2013-09-19
+[42] Jeroen Janssens, "7 command-line tools for data science", 2013-09-19
     http://jeroenjanssens.com/2013/09/19/seven-command-line-tools-for-data-science.html
-[42] Greg's Wiki, "Bash Pitfalls"
+[43] Greg's Wiki, "Bash Pitfalls"
     http://mywiki.wooledge.org/BashPitfalls
 
 7. Changelog
 ------------
 
 2018-03-08 initial release
+2018-03-29 ADD missed to mention W3 hx* tools from html-xml-utils
+    ADD few newbie awk hints
 
