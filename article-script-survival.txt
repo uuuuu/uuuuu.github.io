@@ -6,7 +6,7 @@ POSIX Shell Scripting Survival Guide
 Authors: ulcer <ulcer@sdf.org>
 License: CC-BY-SA 4.0
 Published: 2018-03-08
-Updated: 2018-03-29
+Updated: 2018-04-11
 Link: gopher://sdf.org/0/users/ulcer/kb/kb/article-script-survival.md
 Mirror: https://uuuuu.github.io/article-script-survival.txt
 
@@ -340,8 +340,20 @@ stronger validation.
 If you can't rely on kind of mksh for array support, then there's still
 life there.
 
-The only simple way of  walking arrays is parameter substitution. Let's
-for example split word from word list:
+Most probably your  data is line oriented,  which you append/sort/uniq.
+Let's query it:
+
+    $ a=$( seq 1 3 ); seq 40 60 | grep -F "$a"
+
+If you need  to search field separated data (key-value  or any kind of 
+CSV)  per  line,  fast  lookup  is done  with  "join"  utility.  Here, 
+"storage" file  is ordered by first  column CSV with 1st  column to be 
+queried, second file is ordered term per line:                         
+
+    $ join -t ',' storage request
+
+The simple way  of walking string of words  is parameter substitution. 
+Let's for example split word from word list:                           
 
     $ array="alpha beta gamma"
     $ head="${array%% *}"; array="${array#* }"
@@ -381,6 +393,10 @@ send it as awk variable:
 
     $ a=$( seq 1 10; ); echo | mawk -v a="$a" \
         'END{split(a,f,"\n"); for (i in f) print f[i]}'
+
+But if you think  you need arrays of arrays, kinds  of linked lists and
+so on  it's time to reevaluate  if you 'd  be able to read  this script
+again if you solve everything with shell/awk.
 
 ### 2.6. Change file
 
@@ -471,7 +487,7 @@ used as alternative to pv, exclusive for buffering tasks.
 Looks like in 2018 you can't market "grep" without "data science", "big
 data" and  other buzzwords.  Ok, here  are few  hints for  faster grep.
 First  of  all, "-F"  switch  stops  interpretting pattern  as  regular
-expression. Other thing  to consider - setting "LANG=C"  instead of UTF
+expression, which means faster grep. Other thing  to consider - setting "LANG=C"  instead of UTF
 locale  and  utilization  of  your multiple  CPU  cores.  See  relevant
 publications [19] for xargs(1) (see  "-P" switch) and parallel(1) (note
 "--linebuffer" switch). Also don't forget about "-m" switch if you know
@@ -615,13 +631,15 @@ This is relevant to web page scraping.
 
 There are  two URL  encodings you may  encounter: punycode  and percent
 encoding. Punycode  of "xn--"  prefix covers  internationalized domains
-and can be  converted back and forth with idn(1).  Percent encoding can
-be reversed with:
+and can be  converted back and forth with idn(1).
 
-    $ echo 'a%20b+c' | sed "s|+| |g;s|%|\\\\x|g" | xargs -0 printf "%b"
+Percent encoding operations (urldecode and urlencode):
+
+    $ echo 'a%20b+c' | sed "s|+| |g;s|%|\\\\x|g" | xargs -L1 printf "%b"
+    $ printf "%s" test | od -An -tx1 | tr ' ' '%' | xargs printf "%s"
 
 Pages are usually grabbed with curl(1)  or wget(1) with wget being more
-suitable for  mirroring/recursive download.  curl invokation  with user
+suitable for  mirroring/recursive download.  curl invocation  with user
 agent set and requesting compressed data:
 
     $ curl -H 'Accept-encoding: gzip' | gunzip -
@@ -685,7 +703,8 @@ and is just perfect for parsing with awk without extra tools.
 
 jq  is also  tolerant to  JSON  lines input  (each line  is valid  json
 expression) [25], which is compromise for mungling it with grep/awk and
-jq and solves disgusting problem of root braces {}.
+jq and solves disgusting problem of root braces {}. Besides, it's great
+for parallelization.
 
 Just an example jq call to rename field "a" to "b":
 
@@ -1101,4 +1120,5 @@ Bash FAQ, which still covers lot of newbie POSIX-related pitfalls: [43]
 2018-03-08 initial release
 2018-03-29 ADD missed to mention W3 hx* tools from html-xml-utils
     ADD few newbie awk hints
+2018-04-11 ADD portable urlencode/urldecode, fast querying with "join"
 
