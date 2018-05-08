@@ -6,7 +6,7 @@ POSIX Shell Scripting Survival Guide
 Authors: ulcer <ulcer@sdf.org>
 License: CC-BY-SA 4.0
 Published: 2018-03-08
-Updated: 2018-04-11
+Updated: 2018-05-08
 Link: gopher://sdf.org/0/users/ulcer/kb/kb/article-script-survival.md
 Mirror: https://uuuuu.github.io/article-script-survival.txt
 
@@ -566,8 +566,15 @@ of sore bugs, like lack of regex quantifiers "{}" support.
 Few survival hints for awk:
 
 - delete array: split ("", array)
-- variable scope  inside of function: should be  array, like global[0],
-  to be mutable
+- variable passed  as parameter  to  function:  should  be array,  like
+  global[0], to be mutable:
+
+    $ echo | mawk 'function a(){b=5} { b=2; a(); print b}'
+    5
+    $ echo | mawk 'function a(c){c=5} { b=2; a(b); print b}'
+    2
+    $ echo | mawk 'function a(c){c[0]=5} { b[0]=2; a(b); print b[0]}'
+    5
 
 ### 3.5. Notes on portable syntax
 
@@ -1121,4 +1128,5 @@ Bash FAQ, which still covers lot of newbie POSIX-related pitfalls: [43]
 2018-03-29 ADD missed to mention W3 hx* tools from html-xml-utils
     ADD few newbie awk hints
 2018-04-11 ADD portable urlencode/urldecode, fast querying with "join"
+2018-05-08 FIX example in 3.4 "Notes on awk" about mutable variable passed as parameter
 
